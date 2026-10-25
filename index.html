@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chill Aquarium</title>
+<style>
+  :root {
+    --ui-bg: rgba(10, 20, 32, 0.85);
+    --ui-border: rgba(255, 255, 255, 0.16);
+    --accent: #64ffda;
+    --text: #e0f2f1;
+  }
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  body, html {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #040911;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Meiryo, sans-serif;
+    color: var(--text);
+  }
+  #tank {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 1; display: block; cursor: crosshair;
+  }
+  
+  /* Edgeでも確実に表示されるHUDレイヤー */
+  .hud {
+    position: fixed; top: 10px; left: 10px; right: 10px;
+    z-index: 50;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none; gap: 8px; flex-wrap: wrap;
+  }
+  .panel {
+    background-color: var(--ui-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--ui-border);
+    border-radius: 10px;
+    padding: 6px 12px;
+    pointer-events: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+  }
+  .stats {
+    display: flex; gap: 14px; align-items: center; font-size: 11px;
+  }
+  .stat-item { display: flex; align-items: baseline; gap: 5px; }
+  .stat-label { color: rgba(255,255,255,0.65); }
+  .stat-val { font-size: 14px; font-weight: 700; color: var(--accent); font-family: Consolas, monospace; }
+  
+  .controls {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  }
+  button {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff; border: 1px solid var(--ui-border);
+    padding: 5px 10px; border-radius: 6px;
+    cursor: pointer; font-size: 11px; transition: background 0.2s, border-color 0.2s;
+    white-space: nowrap; font-family: inherit;
+  }
+  button:hover:not(:disabled) {
+    background: rgba(100, 255, 218, 0.18);
+    border-color: var(--accent);
+  }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-release {
+    background: rgba(255, 120, 120, 0.12);
+    border-color: rgba(255, 120, 120, 0.3);
+    color: #ffcdd2;
+  }
+  .btn-release:hover:not(:disabled) {
+    background: rgba(255, 120, 120, 0.25);
+    border-color: #ff8a80;
+  }
+
+  /* モーダル */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(2, 6, 12, 0.65);
+    backdrop-filter: blur(5px);
+    display: none; justify-content: center; align-items: center;
+    z-index: 100; pointer-events: auto;
+  }
+  .modal {
+    background: #0b1724; border: 1px solid var(--ui-border);
+    border-radius: 14px; padding: 18px 20px; width: 420px; max-width: 92vw;
+    max-height: 85vh; display: flex; flex-direction: column;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.6); position: relative;
+  }
+  .modal h3 {
+    margin: 0 0 12px 0; font-size: 15px; color: var(--accent);
+    border-bottom: 1px solid var(--ui-border); padding-bottom: 8px;
+    font-weight: 600; letter-spacing: 0.5px;
+  }
+  .close-btn {
+    position: absolute; top: 12px; right: 14px; background: transparent; border: none;
+    color: #99a; font-size: 18px; cursor: pointer; padding: 2px 6px;
+  }
+  .close-btn:hover { color: #fff; }
+  
+  /* 神秘の卵リスト */
+  .egg-list { display: flex; flex-direction: column; gap: 10px; }
+  .egg-card {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--ui-border);
+    border-radius: 10px; padding: 10px 14px;
+  }
+  .egg-info { display: flex; flex-direction: column; gap: 3px; }
+  .egg-title { font-size: 13px; font-weight: 600; color: #fff; }
+  .egg-desc { font-size: 11px; color: rgba(255,255,255,0.6); }
+
+  /* 図鑑グリッド */
+  .list-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+    gap: 8px; overflow-y: auto; padding-right: 4px;
+  }
+  .list-item {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--ui-border);
+    border-radius: 8px; padding: 8px; font-size: 11px;
+    display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px;
+  }
+  .list-item.locked { opacity: 0.35; }
+  .preview-canvas {
+    width: 80px; height: 50px; background: rgba(0,0,0,0.25);
+    border-radius: 6px; margin-bottom: 2px;
+  }
+
+  /* インスペクター */
+  .inspector-body {
+    display: flex; gap: 14px; align-items: center; margin-top: 6px;
+  }
+  #insp-canvas {
+    width: 120px; height: 90px; background: rgba(0,0,0,0.3);
+    border: 1px solid var(--ui-border); border-radius: 10px; flex-shrink: 0;
+  }
+  .progress-bar {
+    width: 100%; height: 6px; background: rgba(255,255,255,0.1);
+    border-radius: 3px; overflow: hidden; margin-top: 4px;
+  }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+  .inspector-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--ui-border);
+  }
+
+  .hint {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 40; font-size: 11px; color: rgba(255,255,255,0.4);
+    pointer-events: none; white-space: nowrap;
+  }
+  body.zen-mode .hud, body.zen-mode .hint { opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+  #zen-exit {
+    position: fixed; bottom: 14px; right: 14px; z-index: 60;
+    display: none; opacity: 0.5;
+  }
+  body.zen-mode #zen-exit { display: block; }
+</style>
+</head>
+<body>
+
+<canvas id="tank"></canvas>
+
+<div class="hud">
+  <div class="panel stats">
+    <div class="stat-item">
+      <span class="stat-label">しずく</span>
+      <span id="cp" class="stat-val">150</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">水質</span>
+      <span id="water-purity" class="stat-val">100%</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">いきもの</span>
+      <span id="fish-count" class="stat-val">3</span>
+    </div>
+  </div>
+  
+  <div class="panel controls">
+    <button id="btn-menu-egg">🥚 神秘の卵</button>
+    <button id="btn-menu-encyclopedia">📖 図鑑</button>
+    <button id="btn-menu-manage">🌿 環境</button>
+    <button id="btn-light">照明: 自動(実時間)</button>
+    <button id="btn-sound">♪ 音: OFF</button>
+    <button id="btn-zen">👁 鑑賞</button>
+  </div>
+</div>
+
+<button id="zen-exit" onclick="toggleZen()">UIを表示</button>
+<div class="hint">水面クリックでエサやり / 魚をクリックで観察・リリース</div>
+
+<!-- 神秘の卵モーダル -->
+<div id="modal-egg" class="modal-overlay">
+  <div class="modal">
+    <button class="close-btn" onclick="closeModals()">×</button>
+    <h3>神秘の卵</h3>
+    <div class="egg-list">
+      <div class="egg-card">
+        <div class="egg-info">
+          <span class="egg-title">🥚 素朴な卵</span>
+          <span class="egg-desc">穏やかな水辺に息づく小さな命が孵ります</span>
+        </div>
+        <button id="btn-buy-egg1" onclick="hatchEgg(1)">100 しずく</button>
+      </div>
+      <div class="egg-card">
+        <div class="egg-info">
+          <span class="egg-title">💧 蒼海の卵</span>
+          <span class="egg-desc">色鮮やかな姿や優雅なヒレを持つ命が宿っています</span>
+        </div>
+        <button id="btn-buy-egg2" onclick="hatchEgg(2)">1,000 しずく</button>
+      </div>
+      <div class="egg-card">
+        <div class="egg-info">
+          <span class="egg-title">🌌 深淵の卵</span>
+          <span class="egg-desc">深い海の底や悠久の時を生きる神秘的な命が眠っています</span>
+        </div>
+        <button id="btn-buy-egg3" onclick="hatchEgg(3)">10,000 しずく</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 図鑑モーダル -->
+<div id="modal-encyclopedia" class="modal-overlay">
+  <div class="modal" style="width: 520px;">
+    <button class="close-btn" onclick="closeModals()">×</button>
+    <h3>いきもの図鑑 (<span id="encyc-count">0</span>/22)</h3>
+    <div id="encyclopedia-list" class="list-grid"></div>
+  </div>
+</div>
+
+<!-- 環境管理モーダル -->
+<div id="modal-manage" class="modal-overlay">
+  <div class="modal">
+    <button class="close-btn" onclick="closeModals()">×</button>
+    <h3>水槽の環境</h3>
+    <div style="font-size: 12px; display: flex; flex-direction: column; gap: 12px;">
+      <div class="egg-card">
+        <div class="egg-info">
+          <span class="egg-title">🦐 ヤマトヌマエビ (<span id="shrimp-count">0</span>匹)</span>
+          <span class="egg-desc">水底を歩き回り、食べ残しのエサを掃除します</span>
+        </div>
+        <button id="btn-buy-shrimp" onclick="buyShrimp()">300 しずく</button>
+      </div>
+      <div class="egg-card">
+        <div class="egg-info">
+          <span class="egg-title">🫧 ろ過フィルター (Lv.<span id="filter-lvl">1</span>)</span>
+          <span class="egg-desc">微細な泡で水を浄化し、水質を自動で回復します</span>
+        </div>
+        <button id="btn-buy-filter" onclick="upgradeFilter()"><span id="filter-cost">500</span> しずく</button>
+      </div>
+      <div class="egg-card">
+        <div class="egg-info">
+          <span class="egg-title">🌿 水草の株分け</span>
+          <span class="egg-desc">水流に揺れる水草を新しい場所に植えます</span>
+        </div>
+        <button id="btn-buy-plant" onclick="addPlant()">150 しずく</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 魚インスペクターモーダル (リリース機能付き) -->
+<div id="modal-inspector" class="modal-overlay">
+  <div class="modal" style="width: 390px;">
+    <button class="close-btn" onclick="closeModals()">×</button>
+    <h3 id="insp-name">いきものの様子</h3>
+    <div class="inspector-body">
+      <canvas id="insp-canvas" width="120" height="90"></canvas>
+      <div style="font-size: 12px; line-height: 1.7; flex: 1;">
+        <div>体長: <span id="insp-size" style="color:var(--accent); font-weight:600;"></span> mm</div>
+        <div>成長: <span id="insp-stage" style="color:var(--accent);"></span> (<span id="insp-pct"></span>%)</div>
+        <div class="progress-bar"><div id="insp-bar" class="progress-fill"></div></div>
+        <div style="margin-top:6px;">しずく生成: <span id="insp-rate" style="color:var(--accent);"></span> / 秒</div>
+      </div>
+    </div>
+    <div id="insp-desc" style="font-size:11px; color:rgba(255,255,255,0.65); margin-top:12px;"></div>
+    <div class="inspector-footer">
+      <span id="insp-release-note" style="font-size:11px; color:rgba(255,255,255,0.5);">広い水辺へ還すことができます</span>
+      <button id="btn-release-fish" class="btn-release" onclick="releaseInspectedFish()">🌊 自然へ還す (+<span id="insp-refund">0</span>)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- 全22種のビジュアル・生態データ ---
+const FISH_DATA = [
+  { id: 'neon', name: 'ネオンテトラ', rate: 1.2, size: 22, tier: 1, shape: 'tetra', c1: '#00e5ff', c2: '#ff1744', desc: '青い発光ラインと赤い尾が美しい、群れで泳ぐ小さな魚。' },
+  { id: 'medaka', name: 'ヒメダカ', rate: 1.0, size: 20, tier: 1, shape: 'slim', c1: '#ffb74d', c2: '#ffe082', desc: '水面近くを穏やかに泳ぐ、親しみ深い黄金色の小魚。' },
+  { id: 'guppy', name: 'ファンシーグッピー', rate: 1.5, size: 26, tier: 1, shape: 'guppy', c1: '#ff7043', c2: '#ffca28', desc: 'ドレスのように大きく広がる華やかな尾ビレが特徴。' },
+  { id: 'danio', name: 'ゼブラダニオ', rate: 1.4, size: 28, tier: 1, shape: 'slim', c1: '#5c6bc0', c2: '#fff59d', stripe: 'h', desc: '紺と金の美しい縦縞を持ち、元気よく水槽を駆け回る。' },
+  { id: 'killifish', name: 'アフリカン・ランプアイ', rate: 1.5, size: 22, tier: 1, shape: 'slim', c1: '#b0bec5', c2: '#00e5ff', eyeGlow: true, desc: '暗がりの中で目の上部がネオンブルーにキラリと光る。' },
+  { id: 'kuhli', name: 'クーリーローチ', rate: 1.8, size: 42, tier: 1, shape: 'eel', c1: '#ffb74d', c2: '#3e2723', zone: 'bottom', desc: '縞模様の細長い体で、水底をくねくねと這うように泳ぐ。' },
+  
+  { id: 'cory', name: 'コリドラス・パンダ', rate: 2.5, size: 32, tier: 2, shape: 'cory', c1: '#f5f5f5', c2: '#263238', zone: 'bottom', desc: '目元と尾の付け根に黒い模様がある、水底の愛らしい働き者。' },
+  { id: 'cherry_barb', name: 'チェリーバルブ', rate: 2.8, size: 30, tier: 2, shape: 'tetra', c1: '#d81b60', c2: '#ff8a80', desc: '熟したサクランボのような深い紅色が水草によく映える。' },
+  { id: 'harlequin', name: 'ラスボラ・ヘテロモルファ', rate: 3.0, size: 28, tier: 2, shape: 'tetra', c1: '#ffab91', c2: '#283593', patch: true, desc: '体後半の黒い三角形の模様がアクセントになった温和な魚。' },
+  { id: 'dwarf_gourami', name: 'コバルト・グラミー', rate: 3.8, size: 38, tier: 2, shape: 'round', c1: '#29b6f6', c2: '#ef5350', stripe: 'v', desc: '輝くコバルトブルーの体に赤い縞が浮かぶ優美な姿。' },
+  { id: 'clownfish', name: 'カクレクマノミ', rate: 4.5, size: 36, tier: 2, shape: 'round', c1: '#ff6d00', c2: '#ffffff', bands: true, desc: '鮮やかなオレンジ色に3本の白い帯が入った人気者。' },
+  { id: 'goldfish', name: '更紗琉金', rate: 5.5, size: 48, tier: 2, shape: 'goldfish', c1: '#e53935', c2: '#ffffff', desc: '丸みのある体と、水流にふわりと舞う長い四つ尾が魅力。' },
+
+  { id: 'betta', name: 'ハーフムーン・ベタ', rate: 9.0, size: 44, tier: 3, shape: 'betta', c1: '#8e24aa', c2: '#00bcd4', desc: '半月のように180度広がる絹のようなヒレを揺らして泳ぐ。' },
+  { id: 'angelfish', name: 'エンゼルフィッシュ', rate: 11.0, size: 55, tier: 3, shape: 'angel', c1: '#eceff1', c2: '#37474f', stripe: 'v', desc: '上下に長く伸びたヒレで、水中を滑空するように優雅に佇む。' },
+  { id: 'blue_tang', name: 'ナンヨウハギ', rate: 12.5, size: 50, tier: 3, shape: 'round', c1: '#1565c0', c2: '#ffd600', desc: '鮮やかなロイヤルブルーの体と黄色い尾ビレが目を引く。' },
+  { id: 'discus', name: 'ターコイズ・ディスカス', rate: 15.0, size: 58, tier: 3, shape: 'discus', c1: '#00acc1', c2: '#ff7043', desc: '円盤状の体に波打つターコイズ模様が描かれた「熱帯魚の王様」。' },
+  { id: 'puffer', name: 'ミドリフグ', rate: 14.0, size: 35, tier: 3, shape: 'puffer', c1: '#c0ca33', c2: '#33691e', spots: true, desc: '丸っこい体で小さな胸ビレをパタパタと動かしてホバリングする。' },
+
+  { id: 'jellyfish', name: '発光ミズクラゲ', rate: 25.0, size: 48, tier: 4, shape: 'jelly', c1: 'rgba(186, 104, 200, 0.75)', c2: '#e1bee7', glow: true, desc: '半透明の傘をゆっくりと拍動させ、幻想的な光を放ちながら漂う。' },
+  { id: 'clione', name: 'クリオネ', rate: 28.0, size: 28, tier: 4, shape: 'clione', c1: 'rgba(128, 222, 234, 0.8)', c2: '#ff5252', glow: true, desc: '透明な体の中心に赤い輝きを宿し、翼足で羽ばたく流氷の天使。' },
+  { id: 'mendako', name: '深海メンダコ', rate: 32.0, size: 40, tier: 4, shape: 'mendako', c1: '#ff7043', c2: '#ffccbc', desc: '耳のようなヒレをパタパタと動かし、パラシュートのように浮遊する。' },
+  { id: 'arowana', name: 'プラチナ・アロワナ', rate: 65.0, size: 88, tier: 4, shape: 'arowana', c1: '#e0f7fa', c2: '#fff9c4', glow: true, desc: '白銀の鱗を煌めかせ、悠然と水面近くを巡る古代魚。' },
+  { id: 'oarfish', name: '銀河リュウグウノツカイ', rate: 110.0, size: 120, tier: 4, shape: 'oarfish', c1: '#b3e5fc', c2: '#ff1744', glow: true, desc: '紅い冠のような背ビレをなびかせ、銀色の長い体を波打たせる深海の神秘。' }
+];
+
+const canvas = document.getElementById('tank');
+const ctx = canvas.getContext('2d');
+let W = window.innerWidth, H = window.innerHeight;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- ゲーム状態 ---
+let chillPoints = 150;
+let waterPurity = 100;
+let shrimpCount = 0;
+let filterLevel = 1;
+let lightMode = 0; // 0: 自動(実時間), 1: 朝, 2: 昼, 3: 夕, 4: 夜
+
+const LIGHT_THEMES = {
+  morning: { label: '朝', top: '#1e6b7b', bottom: '#0a2233', ray: 'rgba(220, 250, 255, 0.05)' },
+  day:     { label: '昼', top: '#12537a', bottom: '#061928', ray: 'rgba(180, 240, 255, 0.04)' },
+  sunset:  { label: '夕', top: '#432c52', bottom: '#150d26', ray: 'rgba(255, 165, 115, 0.045)' },
+  night:   { label: '夜', top: '#050d1a', bottom: '#020409', ray: 'rgba(70, 140, 255, 0.02)' }
+};
+
+let fishes = [];
+let foods = [];
+let bubbles = [];
+let plants = [];
+let shrimps = [];
+let time = 0;
+let unlockedFish = { neon: true, medaka: true };
+let inspectedFish = null;
+
+// --- 安全なローカルストレージ管理 ---
+const SAVE_KEY = 'chill_aquarium_v3_save';
+function safeSave() {
+  try {
+    const data = {
+      chillPoints, waterPurity, shrimpCount, filterLevel, unlockedFish,
+      fishes: fishes.map(f => ({ type: f.type, growth: f.growth })),
+      plantCount: plants.length
+    };
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function safeLoad() {
+  try {
+    const raw = window.localStorage.getItem(SAVE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      chillPoints = typeof data.chillPoints === 'number' ? data.chillPoints : 150;
+      waterPurity = typeof data.waterPurity === 'number' ? data.waterPurity : 100;
+      shrimpCount = typeof data.shrimpCount === 'number' ? data.shrimpCount : 0;
+      filterLevel = typeof data.filterLevel === 'number' ? data.filterLevel : 1;
+      if (data.unlockedFish) unlockedFish = data.unlockedFish;
+      if (Array.isArray(data.fishes) && data.fishes.length > 0) {
+        fishes = data.fishes.map(fd => new Fish(fd.type, fd.growth));
+      }
+      const pCount = data.plantCount || 6;
+      for (let i = 0; i < pCount; i++) plants.push(new Plant((i + 0.5) * (W / pCount)));
+      for (let i = 0; i < shrimpCount; i++) shrimps.push(new Shrimp());
+    }
+  } catch (e) {}
+
+  if (fishes.length === 0) {
+    fishes.push(new Fish('neon', 0.25));
+    fishes.push(new Fish('neon', 0.15));
+    fishes.push(new Fish('medaka', 0.2));
+  }
+  if (plants.length === 0) {
+    for (let i = 0; i < 6; i++) plants.push(new Plant((i + 0.5) * (W / 6)));
+  }
+}
+
+// --- 実時間（リアルタイム）連動の照明取得 ---
+function getActiveTheme() {
+  if (lightMode === 1) return { ...LIGHT_THEMES.morning, modeText: '朝' };
+  if (lightMode === 2) return { ...LIGHT_THEMES.day, modeText: '昼' };
+  if (lightMode === 3) return { ...LIGHT_THEMES.sunset, modeText: '夕' };
+  if (lightMode === 4) return { ...LIGHT_THEMES.night, modeText: '夜' };
+
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 9) return { ...LIGHT_THEMES.morning, modeText: '自動(朝)' };
+  if (hour >= 9 && hour < 16) return { ...LIGHT_THEMES.day, modeText: '自動(昼)' };
+  if (hour >= 16 && hour < 19) return { ...LIGHT_THEMES.sunset, modeText: '自動(夕)' };
+  return { ...LIGHT_THEMES.night, modeText: '自動(夜)' };
+}
+
+// --- Web Audio API アンビエントサウンド ---
+let audioCtx = null;
+let soundEnabled = false;
+let soundTimer = null;
+
+function toggleSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    soundEnabled = !soundEnabled;
+    document.getElementById('btn-sound').textContent = `♪ 音: ${soundEnabled ? 'ON' : 'OFF'}`;
+    if (soundEnabled) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      playAmbientChord();
+      soundTimer = setInterval(() => {
+        if (Math.random() < 0.65) playAmbientChord();
+      }, 2800);
+    } else {
+      clearInterval(soundTimer);
+    }
+  } catch (e) {}
+}
+
+function playAmbientChord() {
+  if (!soundEnabled || !audioCtx) return;
+  const scale = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33];
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = scale[Math.floor(Math.random() * scale.length)];
+  gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.025, audioCtx.currentTime + 1.4);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 4.5);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 4.5);
+}
+
+// --- 高度な魚ビジュアル描画関数 ---
+function renderFishShape(ctx, def, r, phase, isNight) {
+  const sw = Math.sin(phase) * (r * 0.22);
+  const sw2 = Math.cos(phase * 0.8) * (r * 0.15);
+
+  if (def.glow || isNight) {
+    ctx.shadowColor = def.c1;
+    ctx.shadowBlur = def.glow ? 16 : 8;
+  }
+
+  // 1. クラゲ
+  if (def.shape === 'jelly') {
+    const pulse = Math.sin(phase * 0.5);
+    const w = r * (0.85 - pulse * 0.12);
+    const h = r * (0.65 + pulse * 0.1);
+    ctx.strokeStyle = def.c2;
+    ctx.lineWidth = Math.max(1, r * 0.05);
+    for (let i = -3; i <= 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * w * 0.22, h * 0.1);
+      ctx.quadraticCurveTo(
+        i * w * 0.28 + Math.sin(phase + i) * r * 0.2, h * 0.9,
+        i * w * 0.2 + Math.cos(phase + i) * r * 0.25, h * 1.8
+      );
+      ctx.stroke();
+    }
+    const g = ctx.createRadialGradient(0, -h * 0.2, r * 0.1, 0, 0, w);
+    g.addColorStop(0, def.c2);
+    g.addColorStop(1, def.c1);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, w, Math.PI, 0, false);
+    ctx.quadraticCurveTo(0, h * 0.35, -w, 0);
+    ctx.fill();
+    return;
+  }
+
+  // 2. クリオネ
+  if (def.shape === 'clione') {
+    const flap = Math.sin(phase * 1.1) * r * 0.55;
+    ctx.fillStyle = def.c1;
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.2);
+    ctx.quadraticCurveTo(-r * 0.9, -r * 0.5 + flap, -r * 0.2, r * 0.1);
+    ctx.moveTo(0, -r * 0.2);
+    ctx.quadraticCurveTo(r * 0.9, -r * 0.5 + flap, r * 0.2, r * 0.1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 0.85);
+    ctx.quadraticCurveTo(r * 0.45, -r * 0.1, 0, r * 0.95);
+    ctx.quadraticCurveTo(-r * 0.45, -r * 0.1, 0, -r * 0.85);
+    ctx.fill();
+    ctx.fillStyle = def.c2;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.15, r * 0.16, r * 0.24, 0, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  // 3. メンダコ
+  if (def.shape === 'mendako') {
+    const ear = Math.sin(phase * 0.8) * r * 0.2;
+    ctx.fillStyle = def.c1;
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.55, -r * 0.3 + ear, r * 0.3, r * 0.13, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(r * 0.55, -r * 0.3 + ear, r * 0.3, r * 0.13, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.75, Math.PI, 0, false);
+    for (let i = 3; i >= -3; i--) {
+      ctx.quadraticCurveTo(i * r * 0.22, r * 0.45 + Math.sin(phase + i) * r * 0.1, (i - 0.5) * r * 0.22, r * 0.15);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(-r * 0.25, -r * 0.1, r * 0.12, 0, Math.PI * 2);
+    ctx.arc(r * 0.25, -r * 0.1, r * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(-r * 0.25, -r * 0.1, r * 0.06, 0, Math.PI * 2);
+    ctx.arc(r * 0.25, -r * 0.1, r * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  // 4. 多関節うねり系
+  if (def.shape === 'arowana' || def.shape === 'oarfish' || def.shape === 'eel') {
+    const segs = def.shape === 'oarfish' ? 14 : 9;
+    const step = (r * 1.9) / segs;
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const x = r * 0.85 - i * step;
+      const y = Math.sin(phase - i * 0.55) * (i * r * 0.035);
+      pts.push({ x, y });
+    }
+    if (def.shape === 'oarfish') {
+      ctx.strokeStyle = def.c2;
+      ctx.lineWidth = Math.max(1.5, r * 0.06);
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        ctx.moveTo(pts[0].x, pts[0].y - r * 0.08);
+        ctx.lineTo(pts[0].x - r * 0.2 + i * r * 0.12, pts[0].y - r * 0.65 + Math.sin(phase + i) * r * 0.1);
+      }
+      ctx.stroke();
+    }
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let i = 0; i < segs; i++) {
+      const ratio = 1 - (i / segs) * 0.75;
+      ctx.strokeStyle = (def.shape === 'eel' && i % 2 === 1) ? def.c2 : def.c1;
+      ctx.lineWidth = (def.shape === 'arowana' ? r * 0.48 : r * 0.24) * ratio;
+      ctx.beginPath();
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#050b12';
+    ctx.beginPath();
+    ctx.arc(pts[0].x + r * 0.05, pts[0].y - r * 0.05, Math.max(1.5, r * 0.07), 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  // --- 一般魚類の共通パーツ描画 ---
+  const bodyW = r * (def.shape === 'discus' || def.shape === 'angel' ? 0.85 : 1.05);
+  const bodyH = r * (
+    def.shape === 'discus' ? 0.78 :
+    def.shape === 'angel' ? 0.72 :
+    def.shape === 'goldfish' || def.shape === 'round' || def.shape === 'puffer' ? 0.62 :
+    def.shape === 'slim' ? 0.36 : 0.46
+  );
+
+  // 背ビレ・腹ビレ
+  ctx.fillStyle = def.c2;
+  ctx.globalAlpha = 0.85;
+  if (def.shape === 'angel') {
+    ctx.beginPath();
+    ctx.moveTo(r * 0.1, -bodyH * 0.5);
+    ctx.quadraticCurveTo(-r * 0.4, -r * 1.65 + sw2, -r * 0.85, -r * 1.5 + sw);
+    ctx.lineTo(-r * 0.4, -bodyH * 0.3);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(r * 0.0, bodyH * 0.5);
+    ctx.quadraticCurveTo(-r * 0.4, r * 1.65 + sw2, -r * 0.9, r * 1.55 + sw);
+    ctx.lineTo(-r * 0.4, bodyH * 0.3);
+    ctx.fill();
+  } else if (def.shape === 'betta') {
+    ctx.beginPath();
+    ctx.moveTo(r * 0.1, -bodyH * 0.6);
+    ctx.quadraticCurveTo(-r * 0.6, -r * 1.2 + sw, -r * 1.1, -r * 0.3 + sw2);
+    ctx.lineTo(-r * 0.5, 0);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(r * 0.1, bodyH * 0.6);
+    ctx.quadraticCurveTo(-r * 0.6, r * 1.2 + sw, -r * 1.1, r * 0.3 + sw2);
+    ctx.lineTo(-r * 0.5, 0);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(r * 0.15, -bodyH * 0.75);
+    ctx.quadraticCurveTo(-r * 0.2, -bodyH * 1.35 + sw2 * 0.4, -r * 0.5, -bodyH * 0.65);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // 尾ビレ
+  ctx.beginPath();
+  if (def.shape === 'betta' || def.shape === 'guppy' || def.shape === 'goldfish') {
+    const tailR = def.shape === 'betta' ? r * 1.15 : r * 0.85;
+    ctx.moveTo(-bodyW * 0.75, 0);
+    ctx.quadraticCurveTo(-bodyW - tailR * 0.6, -tailR * 0.85 + sw, -bodyW - tailR, -tailR * 0.35 + sw * 1.3);
+    ctx.quadraticCurveTo(-bodyW - tailR * 1.15, sw * 1.5, -bodyW - tailR, tailR * 0.35 + sw * 1.3);
+    ctx.quadraticCurveTo(-bodyW - tailR * 0.6, tailR * 0.85 + sw, -bodyW * 0.75, 0);
+  } else {
+    ctx.moveTo(-bodyW * 0.8, 0);
+    ctx.lineTo(-bodyW - r * 0.55, -bodyH * 0.75 + sw);
+    ctx.lineTo(-bodyW - r * 0.32, sw * 0.5);
+    ctx.lineTo(-bodyW - r * 0.55, bodyH * 0.75 + sw);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.globalAlpha = 1.0;
+
+  // 胴体グラデーション
+  const grad = ctx.createLinearGradient(0, -bodyH, 0, bodyH);
+  grad.addColorStop(0, def.c1);
+  grad.addColorStop(1, def.c2);
+  ctx.fillStyle = grad;
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bodyW, bodyH, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 体表の模様
+  ctx.save();
+  ctx.clip();
+  if (def.id === 'neon') {
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = r * 0.16;
+    ctx.beginPath();
+    ctx.moveTo(bodyW * 0.5, -bodyH * 0.12);
+    ctx.lineTo(-bodyW * 0.7, -bodyH * 0.12);
+    ctx.stroke();
+  } else if (def.bands) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(r * 0.25, -bodyH, r * 0.18, bodyH * 2);
+    ctx.fillRect(-r * 0.22, -bodyH, r * 0.18, bodyH * 2);
+  } else if (def.stripe === 'v') {
+    ctx.fillStyle = 'rgba(20, 30, 40, 0.55)';
+    for (let i = -1; i <= 1; i++) {
+      ctx.fillRect(i * r * 0.38, -bodyH, r * 0.12, bodyH * 2);
+    }
+  } else if (def.stripe === 'h') {
+    ctx.fillStyle = def.c2;
+    for (let i = -1; i <= 1; i++) {
+      ctx.fillRect(-bodyW, i * bodyH * 0.45, bodyW * 2, bodyH * 0.16);
+    }
+  } else if (def.spots) {
+    ctx.fillStyle = def.c2;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(i * r * 0.35, (i % 2) * r * 0.15, r * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // 胸ビレ
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(r * 0.15, bodyH * 0.25, r * 0.22, r * 0.1, 0.4 + sw2 * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 目
+  const eyeX = bodyW * 0.55;
+  const eyeY = -bodyH * 0.18;
+  const eyeR = Math.max(1.8, r * 0.13);
+  if (def.eyeGlow) {
+    ctx.fillStyle = '#00e5ff';
+    ctx.shadowColor = '#00e5ff';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY - eyeR * 0.4, eyeR * 0.9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(eyeX, eyeY, eyeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#06101a';
+  ctx.beginPath();
+  ctx.arc(eyeX + eyeR * 0.2, eyeY, eyeR * 0.6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// --- 魚クラス ---
+class Fish {
+  constructor(type, customGrowth) {
+    this.type = type;
+    this.def = FISH_DATA.find(d => d.id === type) || FISH_DATA[0];
+    this.growth = typeof customGrowth === 'number' ? customGrowth : 0.12;
+    this.x = Math.random() * (W - 140) + 70;
+    this.y = this.def.zone === 'bottom'
+      ? H - 45 - Math.random() * 40
+      : Math.random() * (H - 220) + 80;
+    this.vx = (Math.random() - 0.5) * 1.5;
+    this.vy = (Math.random() - 0.5) * 0.5;
+    this.phase = Math.random() * Math.PI * 2;
+    this.baseSpeed = this.def.tier >= 4 ? 0.75 : 1.25;
+  }
+
+  getSizeMM() {
+    return this.def.size * (0.35 + 0.65 * this.growth);
+  }
+
+  getRadiusPx() {
+    return Math.max(9, Math.pow(this.getSizeMM(), 0.72) * 1.45);
+  }
+
+  getReleaseValue() {
+    const baseByTier = { 1: 30, 2: 250, 3: 1200, 4: 4500 }[this.def.tier] || 50;
+    return Math.floor(baseByTier * (0.5 + this.growth * 1.0));
+  }
+
+  update() {
+    this.phase += 0.08;
+    if (waterPurity > 60 && this.growth < 1.0) {
+      this.growth = Math.min(1.0, this.growth + 0.00003);
+    }
+
+    if (this.def.shape === 'jelly' || this.def.shape === 'mendako' || this.def.shape === 'clione') {
+      this.vy = Math.sin(this.phase * 0.45) * 0.45 - 0.05;
+      this.vx = Math.cos(this.phase * 0.25) * 0.35;
+      this.x += this.vx;
+      this.y += this.vy;
+      if (this.y < 70) this.y = 70;
+      if (this.y > H - 90) this.y = H - 90;
+      if (this.x < 50) this.x = W - 50;
+      if (this.x > W - 50) this.x = 50;
+      return;
+    }
+
+    let target = null;
+    let minDist = 240;
+    for (const f of foods) {
+      const d = Math.hypot(f.x - this.x, f.y - this.y);
+      if (d < minDist) { minDist = d; target = f; }
+    }
+
+    const r = this.getRadiusPx();
+    if (target) {
+      const ang = Math.atan2(target.y - this.y, target.x - this.x);
+      this.vx += Math.cos(ang) * 0.11;
+      this.vy += Math.sin(ang) * 0.11;
+      if (minDist < r + 8) {
+        target.eaten = true;
+        this.growth = Math.min(1.0, this.growth + 0.012);
+        chillPoints += this.def.rate * 1.5;
+        bubbles.push({ x: this.x, y: this.y, r: 2, vy: -0.9 });
+      }
+    } else {
+      this.vx += (Math.random() - 0.5) * 0.05;
+      this.vy += (Math.random() - 0.5) * 0.03;
+    }
+
+    const margin = 75;
+    if (this.x < margin) this.vx += 0.07;
+    if (this.x > W - margin) this.vx -= 0.07;
+    if (this.def.zone === 'bottom') {
+      if (this.y < H - 110) this.vy += 0.06;
+      if (this.y > H - 35) this.vy -= 0.08;
+    } else {
+      if (this.y < margin) this.vy += 0.06;
+      if (this.y > H - 70) this.vy -= 0.07;
+    }
+
+    const sp = Math.hypot(this.vx, this.vy);
+    if (sp > this.baseSpeed) {
+      this.vx = (this.vx / sp) * this.baseSpeed;
+      this.vy = (this.vy / sp) * this.baseSpeed;
+    } else if (sp < 0.3) {
+      this.vx *= 1.05;
+    }
+
+    this.x += this.vx;
+    this.y += this.vy;
+  }
+
+  draw(isNight) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    const r = this.getRadiusPx();
+
+    if (this.def.shape !== 'jelly' && this.def.shape !== 'mendako' && this.def.shape !== 'clione') {
+      const dir = this.vx >= 0 ? 1 : -1;
+      const tilt = Math.atan2(this.vy, Math.abs(this.vx)) * 0.32 * dir;
+      ctx.rotate(tilt);
+      ctx.scale(dir, 1);
+    }
+    renderFishShape(ctx, this.def, r, this.phase, isNight);
+    ctx.restore();
+  }
+}
+
+// --- ヤマトヌマエビ＆水草 ---
+class Shrimp {
+  constructor() {
+    this.x = Math.random() * (W - 100) + 50;
+    this.vx = (Math.random() < 0.5 ? -1 : 1) * 0.65;
+    this.phase = Math.random() * 10;
+  }
+  update() {
+    this.phase += 0.15;
+    const bottomFood = foods.find(f => f.y > H - 45);
+    if (bottomFood) {
+      this.vx = bottomFood.x > this.x ? 0.9 : -0.9;
+      if (Math.abs(bottomFood.x - this.x) < 12) bottomFood.eaten = true;
+    }
+    this.x += this.vx;
+    if (this.x < 40) this.vx = Math.abs(this.vx);
+    if (this.x > W - 40) this.vx = -Math.abs(this.vx);
+  }
+  draw() {
+    const y = H - 24 + Math.sin(this.x * 0.02) * 5;
+    ctx.save();
+    ctx.translate(this.x, y);
+    ctx.scale(this.vx >= 0 ? 1 : -1, 1);
+    ctx.fillStyle = 'rgba(255, 160, 120, 0.85)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 4, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 220, 200, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(7, -2);
+    ctx.quadraticCurveTo(15, -8 + Math.sin(this.phase) * 2, 20, -4);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+class Plant {
+  constructor(x) {
+    this.x = x;
+    this.blades = 2 + Math.floor(Math.random() * 3);
+    this.height = 75 + Math.random() * 65;
+    this.hue = 125 + Math.random() * 35;
+  }
+  draw(isNight) {
+    ctx.save();
+    for (let b = 0; b < this.blades; b++) {
+      const bx = this.x + (b - 1) * 8;
+      const h = this.height * (0.75 + b * 0.15);
+      const sway = Math.sin(time * 0.018 + this.x * 0.01 + b) * 14;
+      ctx.strokeStyle = `hsl(${this.hue}, 52%, ${isNight ? 18 : 30}%)`;
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx, H - 18);
+      ctx.quadraticCurveTo(bx + sway * 0.4, H - 18 - h * 0.5, bx + sway, H - 18 - h);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+safeLoad();
+
+// --- 神秘の卵 (100 / 1,000 / 10,000) ---
+function hatchEgg(eggTier) {
+  const costs = { 1: 100, 2: 1000, 3: 10000 };
+  const cost = costs[eggTier];
+  if (chillPoints < cost) return;
+  chillPoints -= cost;
+
+  let pool = [];
+  if (eggTier === 1) {
+    pool = FISH_DATA.filter(d => d.tier === 1 || (d.tier === 2 && Math.random() < 0.35));
+  } else if (eggTier === 2) {
+    pool = FISH_DATA.filter(d => d.tier === 2 || d.tier === 3);
+  } else {
+    pool = FISH_DATA.filter(d => d.tier === 3 || d.tier === 4);
+  }
+  if (pool.length === 0) pool = FISH_DATA;
+
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  unlockedFish[chosen.id] = true;
+  const newFish = new Fish(chosen.id, 0.12);
+  fishes.push(newFish);
+
+  closeModals();
+  updateUI();
+  safeSave();
+  openInspector(newFish);
+}
+
+// --- 魚を自然へ還す（リリース機能） ---
+function releaseInspectedFish() {
+  if (!inspectedFish || fishes.length <= 1) return;
+  const idx = fishes.indexOf(inspectedFish);
+  if (idx !== -1) {
+    const refund = inspectedFish.getReleaseValue();
+    chillPoints += refund;
+    // リリースした場所に綺麗な泡を浮かべる
+    for (let i = 0; i < 6; i++) {
+      bubbles.push({
+        x: inspectedFish.x + (Math.random() - 0.5) * 20,
+        y: inspectedFish.y + (Math.random() - 0.5) * 15,
+        r: Math.random() * 3 + 1.5,
+        vy: -(Math.random() * 1.2 + 0.6)
+      });
+    }
+    fishes.splice(idx, 1);
+    closeModals();
+    updateUI();
+    safeSave();
+  }
+}
+
+// --- 環境アップグレード ---
+function buyShrimp() {
+  if (chillPoints >= 300) {
+    chillPoints -= 300;
+    shrimpCount++;
+    shrimps.push(new Shrimp());
+    updateUI();
+    safeSave();
+  }
+}
+function upgradeFilter() {
+  const cost = filterLevel * 500;
+  if (filterLevel < 10 && chillPoints >= cost) {
+    chillPoints -= cost;
+    filterLevel++;
+    updateUI();
+    safeSave();
+  }
+}
+function addPlant() {
+  if (chillPoints >= 150) {
+    chillPoints -= 150;
+    plants.push(new Plant(Math.random() * (W - 100) + 50));
+    updateUI();
+    safeSave();
+  }
+}
+
+// --- モーダル＆インスペクター表示 ---
+function closeModals() {
+  document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+  inspectedFish = null;
+}
+
+document.getElementById('btn-menu-egg').onclick = () => {
+  closeModals();
+  updateUI();
+  document.getElementById('modal-egg').style.display = 'flex';
+};
+
+document.getElementById('btn-menu-encyclopedia').onclick = () => {
+  closeModals();
+  const listEl = document.getElementById('encyclopedia-list');
+  listEl.innerHTML = '';
+  let count = 0;
+  FISH_DATA.forEach(d => {
+    const unlocked = !!unlockedFish[d.id];
+    if (unlocked) count++;
+    const item = document.createElement('div');
+    item.className = `list-item ${unlocked ? '' : 'locked'}`;
+    const c = document.createElement('canvas');
+    c.width = 80; c.height = 50;
+    c.className = 'preview-canvas';
+    item.appendChild(c);
+
+    const pctx = c.getContext('2d');
+    pctx.save();
+    pctx.translate(40, 25);
+    if (!unlocked) pctx.filter = 'brightness(0) opacity(0.5)';
+    renderFishShape(pctx, d, 16, 1.2, false);
+    pctx.restore();
+
+    const title = document.createElement('div');
+    title.innerHTML = `<strong>${unlocked ? d.name : '？？？'}</strong><br><span style="color:var(--accent)">${unlocked ? d.rate + '/秒' : '-'}</span>`;
+    item.appendChild(title);
+    listEl.appendChild(item);
+  });
+  document.getElementById('encyc-count').textContent = count;
+  document.getElementById('modal-encyclopedia').style.display = 'flex';
+};
+
+document.getElementById('btn-menu-manage').onclick = () => {
+  closeModals();
+  updateUI();
+  document.getElementById('modal-manage').style.display = 'flex';
+};
+
+document.getElementById('btn-light').onclick = () => {
+  lightMode = (lightMode + 1) % 5;
+  updateUI();
+};
+
+document.getElementById('btn-sound').onclick = toggleSound;
+
+function toggleZen() {
+  document.body.classList.toggle('zen-mode');
+}
+document.getElementById('btn-zen').onclick = toggleZen;
+
+function openInspector(fish) {
+  inspectedFish = fish;
+  refreshInspectorText();
+  document.getElementById('modal-inspector').style.display = 'flex';
+}
+
+function refreshInspectorText() {
+  if (!inspectedFish) return;
+  const def = inspectedFish.def;
+  const pct = Math.floor(inspectedFish.growth * 100);
+  const stage = pct < 35 ? '稚魚' : (pct < 80 ? '幼魚' : (pct < 98 ? '成魚' : '主'));
+  const currentRate = (def.rate * (0.5 + inspectedFish.growth * 0.5)).toFixed(1);
+  const refund = inspectedFish.getReleaseValue();
+
+  document.getElementById('insp-name').textContent = def.name;
+  document.getElementById('insp-size').textContent = Math.floor(inspectedFish.getSizeMM());
+  document.getElementById('insp-stage').textContent = stage;
+  document.getElementById('insp-pct').textContent = pct;
+  document.getElementById('insp-bar').style.width = `${pct}%`;
+  document.getElementById('insp-rate').textContent = currentRate;
+  document.getElementById('insp-desc').textContent = def.desc;
+  document.getElementById('insp-refund').textContent = refund.toLocaleString();
+
+  const btnRelease = document.getElementById('btn-release-fish');
+  const noteRelease = document.getElementById('insp-release-note');
+  if (fishes.length <= 1) {
+    btnRelease.disabled = true;
+    noteRelease.textContent = '最後の1匹は水槽から還せません';
+  } else {
+    btnRelease.disabled = false;
+    noteRelease.textContent = '広い水辺へ還すことができます';
+  }
+}
+
+// キャンバスクリック (魚観察 or エサやり)
+canvas.addEventListener('pointerdown', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+
+  for (let i = fishes.length - 1; i >= 0; i--) {
+    const f = fishes[i];
+    if (Math.hypot(f.x - cx, f.y - cy) < Math.max(f.getRadiusPx() * 1.2, 22)) {
+      openInspector(f);
+      return;
+    }
+  }
+  foods.push({ x: cx, y: cy, eaten: false });
+});
+
+// 1秒ごとのエコノミー・水質更新
+setInterval(() => {
+  const purityMul = 0.4 + (waterPurity / 100) * 0.6;
+  let gain = 0;
+  fishes.forEach(f => {
+    gain += f.def.rate * (0.5 + f.growth * 0.5) * purityMul;
+  });
+  chillPoints += gain;
+
+  const uneaten = foods.filter(f => f.y > H - 35).length;
+  if (uneaten > 0) {
+    waterPurity = Math.max(20, waterPurity - uneaten * 0.4);
+  } else {
+    waterPurity = Math.min(100, waterPurity + filterLevel * 0.35);
+  }
+
+  updateUI();
+  if (inspectedFish) refreshInspectorText();
+  safeSave();
+}, 1000);
+
+function updateUI() {
+  const cpFloor = Math.floor(chillPoints);
+  document.getElementById('cp').textContent = cpFloor.toLocaleString();
+  document.getElementById('water-purity').textContent = `${Math.floor(waterPurity)}%`;
+  document.getElementById('fish-count').textContent = fishes.length;
+
+  const theme = getActiveTheme();
+  document.getElementById('btn-light').textContent = `照明: ${theme.modeText}`;
+
+  document.getElementById('btn-buy-egg1').disabled = cpFloor < 100;
+  document.getElementById('btn-buy-egg2').disabled = cpFloor < 1000;
+  document.getElementById('btn-buy-egg3').disabled = cpFloor < 10000;
+
+  document.getElementById('shrimp-count').textContent = shrimpCount;
+  document.getElementById('filter-lvl').textContent = filterLevel;
+  const fCost = filterLevel * 500;
+  document.getElementById('filter-cost').textContent = fCost.toLocaleString();
+  document.getElementById('btn-buy-shrimp').disabled = cpFloor < 300;
+  document.getElementById('btn-buy-filter').disabled = cpFloor < fCost || filterLevel >= 10;
+  document.getElementById('btn-buy-plant').disabled = cpFloor < 150;
+}
+updateUI();
+
+// --- メインアニメーションループ ---
+const inspCanvas = document.getElementById('insp-canvas');
+const inspCtx = inspCanvas.getContext('2d');
+
+function loop() {
+  time++;
+  const theme = getActiveTheme();
+  const isNight = theme.label === '夜';
+
+  // 背景グラデーション
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, theme.top);
+  grad.addColorStop(1, theme.bottom);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // 水質の濁りオーバーレイ
+  if (waterPurity < 95) {
+    ctx.fillStyle = `rgba(60, 95, 50, ${(100 - waterPurity) * 0.0035})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // 光のカーテン
+  ctx.save();
+  ctx.fillStyle = theme.ray;
+  for (let i = 0; i < 4; i++) {
+    const rx = (W * 0.22 * (i + 1)) + Math.sin(time * 0.008 + i) * 35;
+    ctx.beginPath();
+    ctx.moveTo(rx - 35, 0);
+    ctx.lineTo(rx + 55, 0);
+    ctx.lineTo(rx + 190, H);
+    ctx.lineTo(rx - 110, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 底砂
+  ctx.fillStyle = isNight ? '#060e16' : '#13222e';
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let x = 0; x <= W + 50; x += 50) {
+    ctx.lineTo(x, H - 22 + Math.sin(x * 0.02) * 5);
+  }
+  ctx.lineTo(W, H);
+  ctx.fill();
+
+  // 水草
+  plants.forEach(p => p.draw(isNight));
+
+  // エビ
+  shrimps.forEach(s => { s.update(); s.draw(); });
+
+  // 泡
+  if (Math.random() < 0.04 + filterLevel * 0.015) {
+    bubbles.push({ x: Math.random() * W, y: H - 15, r: Math.random() * 2.5 + 1, vy: -(Math.random() * 1.1 + 0.5) });
+  }
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i];
+    b.y += b.vy;
+    b.x += Math.sin(time * 0.05 + i) * 0.3;
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.stroke();
+    if (b.y < -10) bubbles.splice(i, 1);
+  }
+
+  // エサ
+  ctx.fillStyle = '#ffb74d';
+  for (let i = foods.length - 1; i >= 0; i--) {
+    const f = foods[i];
+    if (f.y < H - 24) {
+      f.y += 0.65;
+      f.x += Math.sin(time * 0.08 + i) * 0.25;
+    } else {
+      f.decay = (f.decay || 0) + 1;
+    }
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+    if (f.eaten || f.decay > 900) foods.splice(i, 1);
+  }
+
+  // 魚
+  fishes.forEach(f => {
+    f.update();
+    f.draw(isNight);
+  });
+
+  // インスペクターが開いている場合はライブプレビュー描画
+  if (inspectedFish) {
+    inspCtx.clearRect(0, 0, 120, 90);
+    inspCtx.save();
+    inspCtx.translate(60, 45);
+    renderFishShape(inspCtx, inspectedFish.def, 24, time * 0.08, isNight);
+    inspCtx.restore();
+  }
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
